@@ -32,6 +32,7 @@
     </div>
 
     <div class="topbar__right">
+      <div class="topbarAccount" id="topbarAccount" hidden aria-live="polite" title="Account collegato">—</div>
       <button class="chip chip--button chip--icon" id="btnSettings" type="button" aria-label="Impostazioni">
         <img src="assets/icon-settings.png" alt="" />
       </button>
@@ -43,7 +44,7 @@
 
   <main class="layout">
     <aside class="menu" id="toolsMenu">
-      <div class="menu__header">
+      <div class="menu__header" id="toolsMenuHeader">
         <h2 class="menu__title">Strumenti</h2>
         <button class="menu__toggle" id="menuToggle" type="button" aria-expanded="true" aria-controls="toolsMenuBody" aria-label="Chiudi pannello Strumenti">
           <span class="menu__toggleIcon menu__toggleIcon--desktop" id="menuToggleDesktop" aria-hidden="true">◀</span>
@@ -83,7 +84,6 @@
           </div>
           <div class="card">
             <h3>Salvataggi locali</h3>
-            <p>Il Taccuino film salva in automatico nel browser (LocalStorage).</p>
           </div>
           <div class="card card--install">
             <h3>Installa SDAC App</h3>
@@ -100,9 +100,9 @@
         <div class="panel__header">
           <h1><span id="ppHeaderTitle">Piano di Produzione</span></h1>
           <div class="panel__actions">
-            <button class="chip chip--button" id="ppList" type="button">Elenco Produzioni</button>
+            <button class="chip chip--button" id="ppList" type="button">Archivio</button>
             <button class="chip chip--button" id="ppSavePlan" type="button">Salva PdP</button>
-            <button class="chip chip--primary" id="ppNew" type="button">Inizia nuovo</button>
+            <button class="chip chip--primary" id="ppNew" type="button">Nuovo</button>
           </div>
         </div>
 
@@ -1096,31 +1096,18 @@
           </div>
         </div>
 
-        <div class="grid2">
-          <div class="card">
-            <h3>Filtri</h3>
-            <div class="formRow">
-              <label for="nbQuery">Cerca</label>
-              <input id="nbQuery" class="input" type="search" placeholder="Titolo o note..." />
+        <div class="card nbNotebookCard">
+          <div class="nbSectionHead">
+            <h3>Elenco personale</h3>
+            <div class="nbSectionHeadActions">
+              <div class="nbSearchWrap">
+                <label class="sr-only" for="nbQuery">Cerca film</label>
+                <input id="nbQuery" class="input nbSearchInput" type="search" placeholder="Cerca titolo, note, regista o anno..." />
+              </div>
             </div>
-            <div class="formRow">
-              <label for="nbStatusFilter">Stato</label>
-              <select id="nbStatusFilter" class="input">
-                <option value="all" selected>Tutti</option>
-                <option value="towatch">Da vedere</option>
-                <option value="watched">Visto</option>
-              </select>
-            </div>
-            <p class="muted nbInfoText">Le liste condivise arrivano in “Liste ricevute”. La lista ufficiale SDAC è già pronta da aprire o aggiungere.</p>
           </div>
-
-          <div class="card">
-            <div class="nbSectionHead">
-              <h3>Elenco personale</h3>
-              <div id="nbCount" class="nbCount" aria-live="polite"></div>
-            </div>
-            <div id="nbList" class="nbList"></div>
-          </div>
+          <div id="nbSummary" class="nbSummary" aria-live="polite"></div>
+          <div id="nbList" class="nbList"></div>
         </div>
 
         <input id="nbImportFile" type="file" accept="application/json,.json" hidden />
@@ -1143,6 +1130,16 @@
                 <option value="towatch" selected>Da vedere</option>
                 <option value="watched">Visto</option>
               </select>
+            </div>
+
+            <div class="formRow">
+              <label for="nbDirector">Regista</label>
+              <input id="nbDirector" class="input" type="text" maxlength="120" placeholder="Es. Federico Fellini" />
+            </div>
+
+            <div class="formRow">
+              <label for="nbYear">Anno</label>
+              <input id="nbYear" class="input" type="number" min="1888" max="2100" step="1" placeholder="Es. 1960" />
             </div>
 
             <div class="formRow">
@@ -1183,7 +1180,7 @@
             <div class="dialog__actions nbDialogActionsWrap">
               <button class="chip chip--button" type="button" id="nbCopyText">Copia testo</button>
               <button class="chip chip--button" type="button" id="nbDownloadJson">Scarica JSON</button>
-              <button class="chip chip--primary" type="button" id="nbNativeShare">Condividi file</button>
+              <button class="chip chip--primary" type="button" id="nbNativeShare">Condividi</button>
             </div>
           </form>
         </dialog>
@@ -1238,6 +1235,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/app.js"></script>
   <script src="js/storyboard.js"></script>
   <script src="js/dictionary.js"></script>
@@ -1247,5 +1245,21 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="js/production.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      var menuHeader = document.getElementById('toolsMenuHeader');
+      var menuToggle = document.getElementById('menuToggle');
+      if (!menuHeader || !menuToggle) return;
+
+      var triggerToggle = function(){
+        menuToggle.click();
+      };
+
+      menuHeader.addEventListener('click', function(event){
+        if (event.target.closest('#menuToggle')) return;
+        triggerToggle();
+      });
+    });
+  </script>
 </body>
 </html>
