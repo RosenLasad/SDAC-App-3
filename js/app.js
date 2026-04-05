@@ -5,6 +5,7 @@
   const menuToggleDesktop = document.getElementById("menuToggleDesktop");
   const menuToggleMobile = document.getElementById("menuToggleMobile");
   const premiumBadge = document.getElementById("premiumBadge");
+  const topbarAccount = document.getElementById("topbarAccount");
   const installButton = document.getElementById("btnInstallApp");
   const installText = document.getElementById("installAppText");
 
@@ -20,11 +21,6 @@
 
   const SUBSCRIPTION_CONFIG = Object.freeze({
     supportEmail: "info@sdac.it",
-    ownerAccess: {
-      enabled: true,
-      adminEmail: "luxandro010@gmail.com",
-      accessKey: "SDAC-OWNER-2026"
-    },
     plans: {
       annual: {
         label: "Abbonamento annuale",
@@ -77,6 +73,19 @@
     paymentProvider: "stripe",
     billingCycle: "annual"
   });
+
+  if (false) {
+    localMembershipState = {
+      ...localMembershipState,
+      plan: "free",
+      provider: "",
+      cycle: localMembershipState.cycle || "annual",
+      email: "",
+      username: "",
+      updatedAt: new Date().toISOString()
+    };
+    writeJson(MEMBERSHIP_STATE_KEY, localMembershipState);
+  }
 
   let supabaseClient = null;
   let authSession = null;
@@ -147,25 +156,13 @@
   }
 
   function getPlanLabel(plan) {
-    if (plan === "owner" || plan === "admin") return "Admin";
+    if (plan === "admin") return "Admin";
     if (plan === "premium") return "Premium";
     if (plan === "premium_pending") return "In attivazione";
     return "Free";
   }
 
   function getEffectiveMembershipState() {
-    if (localMembershipState.plan === "owner") {
-      return {
-        plan: "owner",
-        provider: "owner",
-        cycle: "owner",
-        email: localMembershipState.email || SUBSCRIPTION_CONFIG.ownerAccess.adminEmail,
-        username: localMembershipState.username || "owner",
-        fullName: "Proprietario SDAC",
-        updatedAt: localMembershipState.updatedAt || ""
-      };
-    }
-
     if (authProfile) {
       const effectivePlan = authProfile.plan === "admin" || authProfile.is_owner
         ? "admin"
@@ -198,11 +195,11 @@
   }
 
   function isPremium() {
-    return ["premium", "admin", "owner"].includes(getEffectiveMembershipState().plan);
+    return ["premium", "admin"].includes(getEffectiveMembershipState().plan);
   }
 
   function isOwner() {
-    return ["admin", "owner"].includes(getEffectiveMembershipState().plan);
+    return ["admin"].includes(getEffectiveMembershipState().plan);
   }
 
   function isAuthenticated() {
@@ -217,17 +214,73 @@
     return authSession?.access_token || "";
   }
 
+  function getCompactAccountLabel() {
+    const fullName = String(authProfile?.full_name || "").trim();
+    if (fullName) {
+      const firstName = fullName.split(/\s+/)[0]?.trim();
+      if (firstName) return firstName;
+    }
+
+    const username = String(authProfile?.username || "").trim();
+    if (username) return username;
+
+    const email = String(authProfile?.email || authSession?.user?.email || "").trim();
+    if (email) return email.split("@")[0].trim();
+
+    return "";
+  }
+
+  function updateTopbarAccountUi() {
+    if (!topbarAccount) return;
+
+    const disconnectedLabel = "Utente non collegato";
+
+    if (!isAuthenticated()) {
+      topbarAccount.hidden = false;
+      topbarAccount.textContent = disconnectedLabel;
+      topbarAccount.title = disconnectedLabel;
+      topbarAccount.classList.add("topbarAccount--disconnected");
+      return;
+    }
+
+    const compactLabel = getCompactAccountLabel();
+    if (!compactLabel) {
+      topbarAccount.hidden = false;
+      topbarAccount.textContent = disconnectedLabel;
+      topbarAccount.title = disconnectedLabel;
+      topbarAccount.classList.add("topbarAccount--disconnected");
+      return;
+    }
+
+    const effectiveState = getEffectiveMembershipState();
+    const fullName = String(authProfile?.full_name || "").trim();
+    const username = String(authProfile?.username || "").trim();
+    const email = String(authProfile?.email || authSession?.user?.email || "").trim();
+    const titleParts = [
+      fullName || compactLabel,
+      username ? `@${username}` : "",
+      email,
+      `Piano: ${getPlanLabel(effectiveState.plan)}`
+    ].filter(Boolean);
+
+    topbarAccount.hidden = false;
+    topbarAccount.textContent = compactLabel;
+    topbarAccount.title = titleParts.join(" • ");
+    topbarAccount.classList.remove("topbarAccount--disconnected");
+  }
+
   function updatePremiumUi() {
     if (!premiumBadge) return;
     const state = getEffectiveMembershipState();
     premiumBadge.textContent = `Piano: ${getPlanLabel(state.plan)}`;
-    premiumBadge.classList.toggle("badge--premium", state.plan === "premium" || state.plan === "admin" || state.plan === "owner");
+    premiumBadge.classList.toggle("badge--premium", state.plan === "premium" || state.plan === "admin");
     premiumBadge.classList.toggle("badge--pending", state.plan === "premium_pending");
-    premiumBadge.classList.toggle("badge--owner", state.plan === "admin" || state.plan === "owner");
+    premiumBadge.classList.toggle("badge--owner", state.plan === "admin");
   }
 
   function notifyMembershipChange() {
     updatePremiumUi();
+    updateTopbarAccountUi();
     window.dispatchEvent(new CustomEvent("sdac:membership-change", { detail: getEffectiveMembershipState() }));
   }
 
@@ -371,7 +424,6 @@
     overlay.hidden = false;
     overlayPanel.classList.toggle("overlay__panel--wide", !!options.wide);
     overlayPanel.classList.toggle("overlay__panel--subscribe", !!options.subscribe);
-    overlayPanel.classList.toggle("overlay__panel--settings", !!options.settings);
     if (typeof options.onOpen === "function") {
       options.onOpen();
     }
@@ -380,7 +432,7 @@
   function closeOverlay() {
     if (!overlay || !overlayPanel || !overlayBody) return;
     overlay.hidden = true;
-    overlayPanel.classList.remove("overlay__panel--wide", "overlay__panel--subscribe", "overlay__panel--settings");
+    overlayPanel.classList.remove("overlay__panel--wide", "overlay__panel--subscribe");
     overlayBody.innerHTML = "";
   }
 
@@ -499,9 +551,6 @@
 
   function buildSettingsHtml() {
     const state = getEffectiveMembershipState();
-    const ownerEnabled = !!SUBSCRIPTION_CONFIG.ownerAccess?.enabled;
-    const ownerEmail = SUBSCRIPTION_CONFIG.ownerAccess?.adminEmail || "";
-    const ownerActive = state.plan === "owner";
 
     return `
       <div class="subscribeFlow">
@@ -510,8 +559,8 @@
             <div class="subHero__eyebrow">Impostazioni SDAC App</div>
             <h3>Gestione account, piano e installazione</h3>
             <p>
-              Controlla il piano attivo, l'installazione dell'app, l'account collegato e,
-              se sei il proprietario, sblocca tutte le funzioni Premium in modalità locale di test.
+              Controlla il piano attivo, l'installazione dell'app e l'account collegato.
+              Gli account admin vengono riconosciuti automaticamente tramite Supabase.
             </p>
           </div>
         </section>
@@ -558,40 +607,6 @@
           ${buildAuthSummaryHtml()}
           <div id="settingsInlineMessage" class="subInlineMessage" role="status" aria-live="polite"></div>
         </section>
-
-        ${ownerEnabled ? `
-        <section class="subSignupCard">
-          <div class="subSignupCard__head">
-            <div>
-              <h4>Modalità Proprietario / Admin</h4>
-              <p class="muted">Questa modalità sblocca tutto localmente per test e uso del proprietario. Non è un sistema sicuro per una build pubblica.</p>
-            </div>
-            <div class="subStatusBadge">${ownerActive ? 'Admin attivo' : 'Accesso riservato'}</div>
-          </div>
-
-          <form id="ownerAccessForm" class="subForm" novalidate>
-            <div class="subFormGrid subFormGrid--owner">
-              <label class="subField">
-                <span>Email proprietario</span>
-                <input class="input" type="email" name="ownerEmail" autocomplete="email" placeholder="${escapeHtml(ownerEmail)}" value="${escapeHtml(ownerEmail)}" />
-              </label>
-              <label class="subField">
-                <span>Chiave proprietario</span>
-                <input class="input" type="password" name="ownerKey" autocomplete="current-password" placeholder="Inserisci la chiave proprietario" />
-              </label>
-            </div>
-            <div class="subActions">
-              <button class="chip chip--primary" type="submit">Attiva modalità Admin</button>
-              ${ownerActive ? '<button class="chip chip--button" type="button" id="ownerDeactivateButton">Disattiva Admin</button>' : ''}
-            </div>
-            <div class="subNoteList">
-              <p><strong>Nota importante:</strong> in questa build la chiave proprietario è locale e visibile nel codice client. Usala solo per test o per la tua versione privata dell'app.</p>
-              <p class="muted">Prima di pubblicare davvero SDAC App, questa modalità va spostata su backend oppure rimossa dalla build pubblica.</p>
-            </div>
-            <div id="ownerInlineMessage" class="subInlineMessage" role="status" aria-live="polite"></div>
-          </form>
-        </section>
-        ` : ''}
       </div>
     `;
   }
@@ -603,12 +618,6 @@
     messageBox.innerHTML = message;
   }
 
-  function setOwnerMessage(message, type = "info") {
-    const messageBox = overlayBody?.querySelector("#ownerInlineMessage");
-    if (!messageBox) return;
-    messageBox.className = `subInlineMessage is-${type}`;
-    messageBox.innerHTML = message;
-  }
 
   function setSettingsMessage(message, type = "info") {
     const messageBox = overlayBody?.querySelector("#settingsInlineMessage");
@@ -617,27 +626,6 @@
     messageBox.innerHTML = message;
   }
 
-  function activateOwnerMode(email) {
-    setLocalMembershipState({
-      plan: "owner",
-      provider: "owner",
-      cycle: "owner",
-      email,
-      username: "owner",
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  function deactivateOwnerMode() {
-    setLocalMembershipState({
-      plan: "free",
-      provider: "",
-      cycle: checkoutDraft.billingCycle || "annual",
-      email: authProfile?.email || checkoutDraft.email || "",
-      username: authProfile?.username || checkoutDraft.username || "",
-      updatedAt: new Date().toISOString()
-    });
-  }
 
   function readSettingsRegisterForm(form) {
     const fd = new FormData(form);
@@ -722,15 +710,13 @@
     authSession = null;
     authProfile = null;
     hasPremiumAccess = false;
-    if (localMembershipState.plan !== "owner") {
-      setLocalMembershipState({
-        plan: "free",
-        provider: "",
-        email: "",
-        username: "",
-        updatedAt: new Date().toISOString()
-      });
-    }
+    setLocalMembershipState({
+      plan: "free",
+      provider: "",
+      email: "",
+      username: "",
+      updatedAt: new Date().toISOString()
+    });
     notifyMembershipChange();
   }
 
@@ -771,17 +757,15 @@
       hasPremiumAccess = !!premiumData;
     }
 
-    if (localMembershipState.plan !== "owner") {
-      setLocalMembershipState({
-        plan: hasPremiumAccess ? "free" : (localMembershipState.plan === "premium_pending" ? "premium_pending" : "free"),
-        email: authProfile?.email || authSession.user.email || "",
-        username: authProfile?.username || "",
-        updatedAt: new Date().toISOString()
-      });
-      if (hasPremiumAccess && localMembershipState.plan === "premium_pending") {
-        localMembershipState.plan = "free";
-        writeJson(MEMBERSHIP_STATE_KEY, localMembershipState);
-      }
+    setLocalMembershipState({
+      plan: hasPremiumAccess ? "free" : (localMembershipState.plan === "premium_pending" ? "premium_pending" : "free"),
+      email: authProfile?.email || authSession.user.email || "",
+      username: authProfile?.username || "",
+      updatedAt: new Date().toISOString()
+    });
+    if (hasPremiumAccess && localMembershipState.plan === "premium_pending") {
+      localMembershipState.plan = "free";
+      writeJson(MEMBERSHIP_STATE_KEY, localMembershipState);
     }
 
     if (!options.silent) notifyMembershipChange();
@@ -822,7 +806,7 @@
 
       supabaseClient.auth.onAuthStateChange(async (_event, session) => {
         authSession = session;
-        if (!session && localMembershipState.plan !== "owner") {
+        if (!session) {
           authProfile = null;
           hasPremiumAccess = false;
           setLocalMembershipState({
@@ -847,297 +831,199 @@
     }
   }
 
-  function buildSubscriptionServicesHtml(options = {}) {
-    const opts = typeof options === "string"
-      ? { featureLabel: options }
-      : { ...(options || {}) };
-
-    const state = getEffectiveMembershipState();
-    const currentPlan = getPlanLabel(state.plan);
-
-    return `
-      <div class="subscribeFlow subscribeFlow--services">
-        <section class="subServicesPanel">
-          <div class="subCompactHead subCompactHead--services">
-            <div>
-              <div class="subCompactEyebrow">Servizi SDAC App</div>
-              <h3>Confronto piani</h3>
-              <p class="muted">Qui trovi l'elenco dei servizi inclusi nella versione Free e quelli disponibili con il piano Premium.</p>
-            </div>
-            <div class="subStatusBadge">${currentPlan}</div>
-          </div>
-
-          <div class="subServicesGrid" aria-label="Confronto servizi SDAC App">
-            <article class="subServiceCard subServiceCard--free">
-              <div class="subCard__badge">Free</div>
-              <h4>Versione Free</h4>
-              <ul class="subList">
-                <li>Dizionario del videomaker completo</li>
-                <li>Taccuino film con lista personale, preferiti e lista SDAC</li>
-                <li>Piano di Produzione con 1 progetto salvabile</li>
-                <li>Storyboard e Decoupage con 1 progetto salvabile</li>
-                <li>Anteprime e presentazione delle Lezioni ONLINE</li>
-                <li>Accesso completo a Shopping</li>
-              </ul>
-            </article>
-
-            <article class="subServiceCard subServiceCard--premium">
-              <div class="subCard__badge">Abbonamento</div>
-              <h4>Versione Premium</h4>
-              <ul class="subList">
-                <li>Piano di Produzione con salvataggi illimitati, archivio, export e condivisione</li>
-                <li>Storyboard con salvataggi illimitati, archivio, export e condivisione</li>
-                <li>Taccuino film con export e condivisione della tua lista</li>
-                <li>Accesso completo agli strumenti senza limitazioni di utilizzo</li>
-                <li>Vantaggi e contenuti extra dedicati agli utenti abbonati</li>
-                <li>Customer Portal Stripe per gestire l'abbonamento</li>
-              </ul>
-            </article>
-
-            <article class="subServiceCard subServiceCard--lessons">
-              <div class="subCard__badge">Lezioni ONLINE</div>
-              <h4>Lezioni e corsi</h4>
-              <ul class="subList">
-                <li>Anteprime e presentazione delle lezioni</li>
-                <li>Possibili vantaggi o sconti per gli abbonati</li>
-                <li>Lezioni complete e corsi acquistabili separatamente</li>
-              </ul>
-            </article>
-          </div>
-
-          <div class="subActions subActions--compact subActions--services">
-            <button class="chip chip--button" type="button" id="subServicesBack">Torna ad Abbonamento</button>
-          </div>
-        </section>
-      </div>
-    `;
-  }
-
-  function buildSubscriptionHtml(options = {}) {
-    const opts = typeof options === "string"
-      ? { featureLabel: options }
-      : { ...(options || {}) };
-
-    const featureLabel = opts.featureLabel || "";
+  function buildSubscriptionHtml(featureLabel = "") {
     const state = getEffectiveMembershipState();
     const currentPlan = getPlanLabel(state.plan);
     const featureNote = featureLabel
-      ? `<div class="subInlineMessage is-info"><strong>Funzione Premium:</strong> ${escapeHtml(featureLabel)}.</div>`
+      ? `<div class="subNotice subNotice--feature"><strong>Funzione Premium:</strong> ${escapeHtml(featureLabel)}. Puoi continuare in Free oppure attivare l’abbonamento.</div>`
       : "";
 
     const annualChecked = checkoutDraft.billingCycle !== "monthly" ? "checked" : "";
     const monthlyChecked = checkoutDraft.billingCycle === "monthly" ? "checked" : "";
+    const loggedIn = isAuthenticated();
     const paymentProvider = checkoutDraft.paymentProvider || "stripe";
     const stripeChecked = paymentProvider !== "paypal" ? "checked" : "";
     const paypalChecked = paymentProvider === "paypal" ? "checked" : "";
-    const loggedIn = isAuthenticated();
-    const premiumSubscriber = loggedIn && state.plan === "premium";
-    const accountEmail = authProfile?.email || authSession?.user?.email || checkoutDraft.email || "";
-    const accountUsername = authProfile?.username || checkoutDraft.username || "";
-    const cycleLabel = checkoutDraft.billingCycle === "monthly" ? SUBSCRIPTION_CONFIG.plans.monthly.price : SUBSCRIPTION_CONFIG.plans.annual.price;
+    const accountEmail = loggedIn ? (authProfile?.email || authSession?.user?.email || checkoutDraft.email) : checkoutDraft.email;
+    const accountUsername = loggedIn ? (authProfile?.username || checkoutDraft.username) : checkoutDraft.username;
+    const accountFullName = loggedIn ? (authProfile?.full_name || checkoutDraft.fullName) : checkoutDraft.fullName;
+    const premiumUser = state.plan === "premium" || state.plan === "admin";
 
-    if (premiumSubscriber) {
-      return `
-        <div class="subscribeFlow subscribeFlow--compact">
-          ${featureNote}
-          <section class="subCompactPanel subCompactPanel--premium">
-            <div class="subCompactHead">
-              <div>
-                <div class="subCompactEyebrow">Account corrente</div>
-                <h3>Abbonamento attivo</h3>
-                <p class="muted">Questo account è già Premium. Puoi uscire oppure gestire la disdetta in una pagina sicura di Stripe.</p>
-              </div>
-              <div class="subStatusBadge">Premium</div>
+    return `
+      <div class="subscribeFlow">
+        ${featureNote}
+        <section class="subHero">
+          <div>
+            <div class="subHero__eyebrow">Piano attuale: ${currentPlan}</div>
+            <h3>Sblocca tutto il potenziale di SDAC App</h3>
+            <p>
+              Inizia gratis con gli strumenti base, oppure passa all’abbonamento per usare SDAC App senza limiti,
+              salvare i tuoi progetti e condividere il tuo lavoro.
+            </p>
+          </div>
+          <div class="subHero__cta">
+            <button class="chip chip--button" type="button" id="subContinueFree">Continua con Free</button>
+          </div>
+        </section>
+
+        <section class="subPlansGrid" aria-label="Confronto piani">
+          <article class="subCard subCard--free">
+            <div class="subCard__badge">Free</div>
+            <h4>Versione Free</h4>
+            <ul class="subList">
+              <li>Dizionario del videomaker completo</li>
+              <li>Taccuino film con lista personale, preferiti e lista SDAC</li>
+              <li>Piano di Produzione con 1 progetto salvabile</li>
+              <li>Storyboard e Decoupage con 1 progetto salvabile</li>
+              <li>Anteprime e presentazione delle Lezioni ONLINE</li>
+              <li>Accesso completo a Shopping</li>
+            </ul>
+          </article>
+
+          <article class="subCard subCard--premium">
+            <div class="subCard__badge">Abbonamento</div>
+            <h4>Versione Abbonamento</h4>
+            <ul class="subList">
+              <li>Piano di Produzione con salvataggi illimitati, archivio, export e condivisione</li>
+              <li>Storyboard con salvataggi illimitati, archivio, export e condivisione</li>
+              <li>Taccuino film con export e condivisione della tua lista</li>
+              <li>Accesso completo agli strumenti senza limitazioni di utilizzo</li>
+              <li>Vantaggi e contenuti extra dedicati agli utenti abbonati</li>
+              <li>Customer Portal Stripe per gestire l'abbonamento</li>
+            </ul>
+          </article>
+
+          <article class="subCard subCard--lessons">
+            <div class="subCard__badge">Lezioni ONLINE</div>
+            <h4>Lezioni e corsi</h4>
+            <ul class="subList">
+              <li>Anteprime e presentazione delle lezioni</li>
+              <li>Possibili vantaggi o sconti per gli abbonati</li>
+              <li>Lezioni complete e corsi acquistabili separatamente</li>
+            </ul>
+          </article>
+        </section>
+
+        <section class="subSignupCard">
+          <div class="subSignupCard__head">
+            <div>
+              <h4>${premiumUser ? 'Gestisci il tuo piano' : 'Attiva il tuo abbonamento'}</h4>
+              <p class="muted">
+                ${loggedIn
+                  ? "Il tuo account è già collegato. Il checkout Stripe userà questo profilo."
+                  : "Se non hai ancora un account, l'app prova a crearlo prima di aprire il checkout Stripe."}
+              </p>
             </div>
+            <div class="subStatusBadge">${currentPlan}</div>
+          </div>
 
-            <div class="subCompactGrid">
-              <div class="subCompactItem">
-                <span>Nome utente</span>
-                <strong>${escapeHtml(accountUsername || "—")}</strong>
-              </div>
-              <div class="subCompactItem">
+          ${!authConfigured ? `
+            <div class="subInlineMessage is-warning">
+              <strong>Supabase non configurato.</strong><br>
+              Per usare checkout e account reali devi inserire <code>SUPABASE_CONFIG.url</code> e <code>SUPABASE_CONFIG.anonKey</code> in <code>js/app.js</code>.
+            </div>
+          ` : ""}
+
+          ${premiumUser && loggedIn ? `
+            <div class="subActions" style="margin-bottom:12px;">
+              <button class="chip chip--button" type="button" id="subManageSubscription">Gestisci abbonamento</button>
+            </div>
+          ` : ""}
+
+          <form id="subCheckoutForm" class="subForm" novalidate>
+            <div class="subFormGrid">
+              <label class="subField">
+                <span>Nome e cognome</span>
+                <input class="input" type="text" name="fullName" maxlength="120" autocomplete="name" placeholder="Es. Alessandro Bellagamba" value="${escapeHtml(accountFullName)}" ${loggedIn ? "readonly" : ""} />
+              </label>
+
+              <label class="subField">
                 <span>Email</span>
-                <strong>${escapeHtml(accountEmail || "—")}</strong>
-              </div>
-              <div class="subCompactItem">
-                <span>Stato abbonamento</span>
-                <strong>${currentPlan}</strong>
+                <input class="input" type="email" name="email" maxlength="120" autocomplete="email" placeholder="nome@email.it" value="${escapeHtml(accountEmail)}" ${loggedIn ? "readonly" : ""} />
+              </label>
+
+              <label class="subField">
+                <span>Nome utente</span>
+                <input class="input" type="text" name="username" maxlength="40" autocomplete="username" placeholder="Es. luxandro010" value="${escapeHtml(accountUsername)}" ${loggedIn ? "readonly" : ""} />
+              </label>
+
+              <label class="subField">
+                <span>Codice promozionale</span>
+                <input class="input" type="text" name="promoCode" maxlength="40" autocomplete="off" placeholder="Es. STUDENTI-SDAC" value="${escapeHtml(checkoutDraft.promoCode)}" />
+              </label>
+
+              ${!loggedIn ? `
+                <label class="subField">
+                  <span>Password</span>
+                  <input class="input" type="password" name="password" minlength="8" autocomplete="new-password" placeholder="Minimo 8 caratteri" />
+                </label>
+
+                <label class="subField">
+                  <span>Conferma password</span>
+                  <input class="input" type="password" name="passwordConfirm" minlength="8" autocomplete="new-password" placeholder="Ripeti la password" />
+                </label>
+              ` : `
+                <div class="subInlineMessage is-info">
+                  <strong>Account collegato:</strong><br>
+                  per l'abbonamento reale useremo l'utente autenticato che stai già usando in SDAC App.
+                </div>
+              `}
+            </div>
+
+            <div class="subChoiceGroup" aria-label="Durata abbonamento">
+              <div class="subChoiceGroup__label">Durata</div>
+              <div class="subChoiceRow">
+                <label class="subChoiceCard">
+                  <input type="radio" name="billingCycle" value="annual" ${annualChecked} />
+                  <span class="subChoiceCard__main">
+                    <strong>${SUBSCRIPTION_CONFIG.plans.annual.label}</strong>
+                    <small>${SUBSCRIPTION_CONFIG.plans.annual.price}</small>
+                  </span>
+                  <span class="subChoiceCard__tag">${SUBSCRIPTION_CONFIG.plans.annual.badge}</span>
+                </label>
+                <label class="subChoiceCard">
+                  <input type="radio" name="billingCycle" value="monthly" ${monthlyChecked} />
+                  <span class="subChoiceCard__main">
+                    <strong>${SUBSCRIPTION_CONFIG.plans.monthly.label}</strong>
+                    <small>${SUBSCRIPTION_CONFIG.plans.monthly.price}</small>
+                  </span>
+                  <span class="subChoiceCard__tag">${SUBSCRIPTION_CONFIG.plans.monthly.badge}</span>
+                </label>
               </div>
             </div>
 
-            <div class="subActions subActions--compact subActions--stackMobile">
-              <button class="chip chip--button" type="button" id="subOpenServices">Servizi SDAC App</button>
-              <button class="chip chip--button" type="button" id="subLogoutAccount">Esci</button>
-              <button class="chip chip--primary" type="button" id="subCancelSubscription">Disdici abbonamento</button>
+            <div class="subChoiceGroup" aria-label="Metodo di pagamento">
+              <div class="subChoiceGroup__label">Pagamento</div>
+              <div class="subChoiceRow">
+                <label class="subChoiceCard subChoiceCard--provider">
+                  <input type="radio" name="paymentProvider" value="stripe" ${stripeChecked} />
+                  <span class="subChoiceCard__main">
+                    <strong>${SUBSCRIPTION_CONFIG.providers.stripe.name}</strong>
+                    <small>${SUBSCRIPTION_CONFIG.providers.stripe.note}</small>
+                  </span>
+                </label>
+                <label class="subChoiceCard subChoiceCard--provider ${SUBSCRIPTION_CONFIG.providers.paypal.enabled ? "" : "is-disabled"}">
+                  <input type="radio" name="paymentProvider" value="paypal" ${paypalChecked} ${SUBSCRIPTION_CONFIG.providers.paypal.enabled ? "" : "disabled"} />
+                  <span class="subChoiceCard__main">
+                    <strong>${SUBSCRIPTION_CONFIG.providers.paypal.name}</strong>
+                    <small>${SUBSCRIPTION_CONFIG.providers.paypal.note}</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div class="subActions">
+              <button class="chip chip--primary" type="submit" id="subSubscribeButton">${premiumUser ? "Aggiorna con Stripe" : "Abbonati con Stripe"}</button>
+              <button class="chip chip--button" type="button" id="subSaveDraft">Salva dati</button>
+            </div>
+
+            <div class="subNoteList">
+              <p><strong>Checkout reale:</strong> questa build usa Netlify Functions + Stripe Checkout + Supabase Auth.</p>
+              <p class="muted">Per completare il collegamento devi configurare le variabili ambiente di Netlify e creare in Stripe i due prezzi (mensile e annuale).</p>
             </div>
 
             <div id="subInlineMessage" class="subInlineMessage" role="status" aria-live="polite"></div>
-          </section>
-        </div>
-      `;
-    }
-
-    if (loggedIn) {
-      return `
-        <div class="subscribeFlow subscribeFlow--compact">
-          ${featureNote}
-          <section class="subCompactPanel">
-            <div class="subCompactHead">
-              <div>
-                <div class="subCompactEyebrow">Account corrente</div>
-                <h3>Abbonati con questo account</h3>
-                <p class="muted">Il checkout Stripe userà l'account che hai già collegato a SDAC App.</p>
-              </div>
-              <div class="subStatusBadge">${currentPlan}</div>
-            </div>
-
-            <div class="subCompactGrid">
-              <div class="subCompactItem">
-                <span>Nome utente</span>
-                <strong>${escapeHtml(accountUsername || "—")}</strong>
-              </div>
-              <div class="subCompactItem">
-                <span>Email</span>
-                <strong>${escapeHtml(accountEmail || "—")}</strong>
-              </div>
-              <div class="subCompactItem">
-                <span>Piano attuale</span>
-                <strong>${currentPlan}</strong>
-              </div>
-            </div>
-
-            <form id="subCheckoutForm" class="subForm subForm--compact" novalidate>
-              <div class="subFormGrid subFormGrid--checkoutCompact">
-                <label class="subField">
-                  <span>Codice promozionale</span>
-                  <input class="input" type="text" name="promoCode" maxlength="40" autocomplete="off" placeholder="Es. STUDENTI-SDAC" value="${escapeHtml(checkoutDraft.promoCode)}" />
-                </label>
-              </div>
-
-              <div class="subChoiceGroup" aria-label="Durata abbonamento">
-                <div class="subChoiceGroup__label">Durata</div>
-                <div class="subChoiceRow">
-                  <label class="subChoiceCard">
-                    <input type="radio" name="billingCycle" value="annual" ${annualChecked} />
-                    <span class="subChoiceCard__main">
-                      <strong>${SUBSCRIPTION_CONFIG.plans.annual.label}</strong>
-                      <small>${SUBSCRIPTION_CONFIG.plans.annual.price}</small>
-                    </span>
-                    <span class="subChoiceCard__tag">${SUBSCRIPTION_CONFIG.plans.annual.badge}</span>
-                  </label>
-                  <label class="subChoiceCard">
-                    <input type="radio" name="billingCycle" value="monthly" ${monthlyChecked} />
-                    <span class="subChoiceCard__main">
-                      <strong>${SUBSCRIPTION_CONFIG.plans.monthly.label}</strong>
-                      <small>${SUBSCRIPTION_CONFIG.plans.monthly.price}</small>
-                    </span>
-                    <span class="subChoiceCard__tag">${SUBSCRIPTION_CONFIG.plans.monthly.badge}</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="subChoiceGroup" aria-label="Metodo di pagamento">
-                <div class="subChoiceGroup__label">Pagamento</div>
-                <div class="subChoiceRow">
-                  <label class="subChoiceCard subChoiceCard--provider">
-                    <input type="radio" name="paymentProvider" value="stripe" ${stripeChecked} />
-                    <span class="subChoiceCard__main">
-                      <strong>${SUBSCRIPTION_CONFIG.providers.stripe.name}</strong>
-                      <small>${SUBSCRIPTION_CONFIG.providers.stripe.note}</small>
-                    </span>
-                  </label>
-                  <label class="subChoiceCard subChoiceCard--provider ${SUBSCRIPTION_CONFIG.providers.paypal.enabled ? "" : "is-disabled"}">
-                    <input type="radio" name="paymentProvider" value="paypal" ${paypalChecked} ${SUBSCRIPTION_CONFIG.providers.paypal.enabled ? "" : "disabled"} />
-                    <span class="subChoiceCard__main">
-                      <strong>${SUBSCRIPTION_CONFIG.providers.paypal.name}</strong>
-                      <small>${SUBSCRIPTION_CONFIG.providers.paypal.note}</small>
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="subActions subActions--compact subActions--stackMobile">
-                <button class="chip chip--button" type="button" id="subOpenServices">Servizi SDAC App</button>
-                <button class="chip chip--button" type="button" id="subLogoutAccount">Esci / altro account</button>
-                <button class="chip chip--primary" type="submit" id="subSubscribeButton">Abbonati con Stripe</button>
-              </div>
-
-              <div class="subNoteList">
-                <p><strong>Riepilogo:</strong> userai l'account <strong>${escapeHtml(accountUsername || accountEmail || "corrente")}</strong> e il piano selezionato (${escapeHtml(cycleLabel)}).</p>
-              </div>
-
-              <div id="subInlineMessage" class="subInlineMessage" role="status" aria-live="polite"></div>
-            </form>
-          </section>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="subscribeFlow subscribeFlow--compact">
-        ${featureNote}
-        <section class="subCompactPanel">
-          <div class="subCompactHead subCompactHead--stack">
-            <div>
-              <div class="subCompactEyebrow">Abbonamento SDAC App</div>
-              <h3>Entra oppure crea un account</h3>
-              <p class="muted">Se hai già un account, entra e poi scegli il piano. Se non sei ancora registrato, crea l'account qui sotto.</p>
-            </div>
-            <div class="subCompactHead__actions">
-              <div class="subStatusBadge">${currentPlan}</div>
-              <button class="chip chip--button" type="button" id="subOpenServices">Servizi SDAC App</button>
-            </div>
-          </div>
-
-          <div class="subCompactStack">
-            <article class="subMiniCard">
-              <div class="subMiniCard__badge">Entra</div>
-              <h4>Login</h4>
-              <form id="subLoginForm" class="subForm subForm--compact" novalidate>
-                <label class="subField">
-                  <span>Email</span>
-                  <input class="input" type="email" name="email" autocomplete="email" placeholder="nome@email.it" value="${escapeHtml(checkoutDraft.email)}" />
-                </label>
-                <label class="subField">
-                  <span>Password</span>
-                  <input class="input" type="password" name="password" autocomplete="current-password" placeholder="Inserisci la password" />
-                </label>
-                <div class="subActions subActions--compact">
-                  <button class="chip chip--primary" type="submit">Entra</button>
-                </div>
-              </form>
-            </article>
-
-            <article class="subMiniCard subMiniCard--secondary">
-              <div class="subMiniCard__badge">Nuovo account</div>
-              <h4>Registrazione</h4>
-              <form id="subRegisterForm" class="subForm subForm--compact" novalidate>
-                <div class="subFormGrid">
-                  <label class="subField">
-                    <span>Nome e cognome</span>
-                    <input class="input" type="text" name="fullName" autocomplete="name" placeholder="Es. Alessandro Bellagamba" value="${escapeHtml(checkoutDraft.fullName)}" />
-                  </label>
-                  <label class="subField">
-                    <span>Email</span>
-                    <input class="input" type="email" name="email" autocomplete="email" placeholder="nome@email.it" value="${escapeHtml(checkoutDraft.email)}" />
-                  </label>
-                  <label class="subField">
-                    <span>Nome utente</span>
-                    <input class="input" type="text" name="username" autocomplete="username" placeholder="Es. luxandro010" value="${escapeHtml(checkoutDraft.username)}" />
-                  </label>
-                  <label class="subField">
-                    <span>Password</span>
-                    <input class="input" type="password" name="password" autocomplete="new-password" placeholder="Minimo 8 caratteri" />
-                  </label>
-                </div>
-                <div class="subActions subActions--compact">
-                  <button class="chip chip--primary" type="submit">Crea account</button>
-                </div>
-              </form>
-            </article>
-          </div>
-
-          <div id="subInlineMessage" class="subInlineMessage" role="status" aria-live="polite"></div>
+          </form>
         </section>
       </div>
     `;
@@ -1145,16 +1031,15 @@
 
   function readSubscribeForm(form) {
     const formData = new FormData(form);
-    const fallbackState = getEffectiveMembershipState();
     return {
-      fullName: String(formData.get("fullName") || authProfile?.full_name || fallbackState.fullName || checkoutDraft.fullName || "").trim(),
-      email: String(formData.get("email") || authProfile?.email || authSession?.user?.email || fallbackState.email || checkoutDraft.email || "").trim(),
-      username: String(formData.get("username") || authProfile?.username || fallbackState.username || checkoutDraft.username || "").trim(),
+      fullName: String(formData.get("fullName") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
+      username: String(formData.get("username") || "").trim(),
       promoCode: String(formData.get("promoCode") || "").trim(),
       password: String(formData.get("password") || ""),
       passwordConfirm: String(formData.get("passwordConfirm") || ""),
-      billingCycle: String(formData.get("billingCycle") || checkoutDraft.billingCycle || "annual"),
-      paymentProvider: String(formData.get("paymentProvider") || checkoutDraft.paymentProvider || "stripe")
+      billingCycle: String(formData.get("billingCycle") || "annual"),
+      paymentProvider: String(formData.get("paymentProvider") || "stripe")
     };
   }
 
@@ -1200,7 +1085,6 @@
   }
 
   function markSubscriptionPending(draft) {
-    if (localMembershipState.plan === "owner") return;
     setLocalMembershipState({
       plan: "premium_pending",
       provider: "stripe",
@@ -1366,61 +1250,21 @@
     sync();
   }
 
-  function setupSubscribeOverlay(options = {}) {
-    const opts = typeof options === "string"
-      ? { featureLabel: options }
-      : { ...(options || {}) };
-    const featureLabel = opts.featureLabel || "";
-    const flashMessage = opts.flashMessage || "";
-
+  function setupSubscribeOverlay(featureLabel = "") {
     const form = overlayBody?.querySelector("#subCheckoutForm");
+    const freeButton = overlayBody?.querySelector("#subContinueFree");
     const saveDraftButton = overlayBody?.querySelector("#subSaveDraft");
     const manageButton = overlayBody?.querySelector("#subManageSubscription");
-    const cancelButton = overlayBody?.querySelector("#subCancelSubscription");
-    const logoutButton = overlayBody?.querySelector("#subLogoutAccount");
-    const switchButton = overlayBody?.querySelector("#subSwitchAccount");
-    const servicesButton = overlayBody?.querySelector("#subOpenServices");
-    const loginForm = overlayBody?.querySelector("#subLoginForm");
-    const registerForm = overlayBody?.querySelector("#subRegisterForm");
 
     bindChoiceCards(overlayBody);
 
-    if (servicesButton) {
-      servicesButton.addEventListener("click", () => {
-        openSubscriptionServicesOverlay({ featureLabel, flashMessage });
-      });
+    if (freeButton) {
+      freeButton.addEventListener("click", closeOverlay);
     }
 
     if (manageButton) {
       manageButton.addEventListener("click", () => {
         openCustomerPortal(setSubscribeMessage);
-      });
-    }
-
-    if (cancelButton) {
-      cancelButton.addEventListener("click", () => {
-        openCancelSubscriptionOverlay();
-      });
-    }
-
-    const handleLogoutToSubscription = async (message) => {
-      try {
-        await logoutAccount();
-        openSubscribeOverlay({ featureLabel, flashMessage: message || "Puoi entrare con un altro account oppure crearne uno." });
-      } catch (err) {
-        setSubscribeMessage(err.message || "Impossibile uscire dall'account.", "error");
-      }
-    };
-
-    if (logoutButton) {
-      logoutButton.addEventListener("click", async () => {
-        await handleLogoutToSubscription("Puoi entrare con un altro account oppure crearne uno.");
-      });
-    }
-
-    if (switchButton) {
-      switchButton.addEventListener("click", async () => {
-        await handleLogoutToSubscription("Puoi usare un altro account per l'abbonamento.");
       });
     }
 
@@ -1442,207 +1286,29 @@
       });
     }
 
-    if (loginForm) {
-      loginForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const data = readSettingsLoginForm(loginForm);
-
-        if (!/^\S+@\S+\.\S+$/.test(data.email)) {
-          setSubscribeMessage("Inserisci un indirizzo email valido.", "error");
-          return;
-        }
-        if (!data.password || data.password.length < 8) {
-          setSubscribeMessage("Inserisci la password corretta.", "error");
-          return;
-        }
-
-        try {
-          await loginAccount(data);
-          setSubscribeMessage("Accesso effettuato correttamente.", "success");
-          window.setTimeout(() => openSubscribeOverlay({ featureLabel, flashMessage: "Account collegato correttamente." }), 280);
-        } catch (err) {
-          setSubscribeMessage(err.message || "Impossibile accedere.", "error");
-        }
-      });
-    }
-
-    if (registerForm) {
-      registerForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const data = readSettingsRegisterForm(registerForm);
-        const error = validateRegisterData(data);
-        if (error) {
-          setSubscribeMessage(error, "error");
-          return;
-        }
-
-        try {
-          const response = await registerAccount(data);
-          if (response?.session) {
-            setSubscribeMessage("Account creato e collegato correttamente.", "success");
-            window.setTimeout(() => openSubscribeOverlay({ featureLabel, flashMessage: "Account creato. Ora puoi scegliere il piano." }), 320);
-          } else {
-            setSubscribeMessage("Account creato. Se in Supabase è attiva la conferma email, controlla la posta, conferma l'indirizzo e poi entra con il tuo account.", "warning");
-          }
-        } catch (err) {
-          setSubscribeMessage(err.message || "Impossibile creare l'account.", "error");
-        }
-      });
-    }
-
-    if (flashMessage) {
-      setSubscribeMessage(flashMessage, "info");
-    } else if (featureLabel) {
+    if (featureLabel) {
       setSubscribeMessage("Puoi continuare con la versione Free oppure completare l’attivazione dell’abbonamento.", "info");
     } else if (isAuthenticated()) {
-      setSubscribeMessage("Account collegato correttamente.", "info");
+      setSubscribeMessage("Account collegato correttamente. Il checkout userà il tuo utente Supabase.", "info");
     }
-  }
-
-  function buildCancelSubscriptionHtml() {
-    const state = getEffectiveMembershipState();
-    const accountEmail = authProfile?.email || authSession?.user?.email || state.email || "";
-    const accountUsername = authProfile?.username || state.username || "";
-
-    return `
-      <div class="subscribeFlow subscribeFlow--compact">
-        <section class="subCompactPanel subCompactPanel--warning">
-          <div class="subCompactHead">
-            <div>
-              <div class="subCompactEyebrow">Gestione abbonamento</div>
-              <h3>Disdici abbonamento</h3>
-              <p class="muted">Per motivi di sicurezza la disdetta viene gestita in Stripe. Si aprirà una pagina protetta da cui potrai annullare il rinnovo.</p>
-            </div>
-            <div class="subStatusBadge">Premium</div>
-          </div>
-
-          <div class="subCompactGrid">
-            <div class="subCompactItem">
-              <span>Nome utente</span>
-              <strong>${escapeHtml(accountUsername || "—")}</strong>
-            </div>
-            <div class="subCompactItem">
-              <span>Email</span>
-              <strong>${escapeHtml(accountEmail || "—")}</strong>
-            </div>
-          </div>
-
-          <div class="subActions subActions--compact">
-            <button class="chip chip--button" type="button" id="subCancelBack">Indietro</button>
-            <button class="chip chip--primary" type="button" id="subCancelConfirm">Apri pagina disdetta</button>
-          </div>
-
-          <div id="subInlineMessage" class="subInlineMessage" role="status" aria-live="polite"></div>
-        </section>
-      </div>
-    `;
-  }
-
-  function setupCancelSubscriptionOverlay() {
-    const backButton = overlayBody?.querySelector("#subCancelBack");
-    const confirmButton = overlayBody?.querySelector("#subCancelConfirm");
-
-    if (backButton) {
-      backButton.addEventListener("click", () => {
-        openSubscribeOverlay({ flashMessage: "Puoi continuare a gestire il tuo account qui." });
-      });
-    }
-
-    if (confirmButton) {
-      confirmButton.addEventListener("click", () => {
-        openCustomerPortal(setSubscribeMessage);
-      });
-    }
-
-    setSubscribeMessage("La disdetta si completa nella pagina protetta di Stripe.", "info");
-  }
-
-  function setupSubscriptionServicesOverlay(options = {}) {
-    const opts = typeof options === "string"
-      ? { featureLabel: options }
-      : { ...(options || {}) };
-    const backButton = overlayBody?.querySelector("#subServicesBack");
-
-    if (backButton) {
-      backButton.addEventListener("click", () => {
-        openSubscribeOverlay(opts);
-      });
-    }
-  }
-
-  function openSubscriptionServicesOverlay(options = {}) {
-    const opts = typeof options === "string"
-      ? { featureLabel: options }
-      : { ...(options || {}) };
-
-    openOverlay("Servizi SDAC App", buildSubscriptionServicesHtml(opts), {
-      subscribe: true,
-      onOpen: () => setupSubscriptionServicesOverlay(opts)
-    });
-  }
-
-  function openCancelSubscriptionOverlay() {
-    openOverlay("Disdici abbonamento", buildCancelSubscriptionHtml(), {
-      subscribe: true,
-      onOpen: () => setupCancelSubscriptionOverlay()
-    });
   }
 
   function openSubscribeOverlay(options = {}) {
-    const opts = typeof options === "string"
-      ? { featureLabel: options }
-      : { ...(options || {}) };
-
-    openOverlay("Abbonamento", buildSubscriptionHtml(opts), {
+    const featureLabel = typeof options === "string" ? options : options.featureLabel || "";
+    openOverlay("Abbonati", buildSubscriptionHtml(featureLabel), {
+      wide: true,
       subscribe: true,
-      onOpen: () => setupSubscribeOverlay(opts)
+      onOpen: () => setupSubscribeOverlay(featureLabel)
     });
   }
 
   function setupSettingsOverlay() {
-    const ownerForm = overlayBody?.querySelector("#ownerAccessForm");
-    const deactivateButton = overlayBody?.querySelector("#ownerDeactivateButton");
     const registerForm = overlayBody?.querySelector("#settingsRegisterForm");
     const loginForm = overlayBody?.querySelector("#settingsLoginForm");
     const logoutButton = overlayBody?.querySelector("#settingsLogoutButton");
     const refreshButton = overlayBody?.querySelector("#settingsRefreshProfile");
     const manageSubscriptionButton = overlayBody?.querySelector("#settingsManageSubscription");
 
-    if (ownerForm) {
-      ownerForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const formData = new FormData(ownerForm);
-        const ownerEmail = String(formData.get("ownerEmail") || "").trim().toLowerCase();
-        const ownerKey = String(formData.get("ownerKey") || "").trim();
-        const expectedEmail = String(SUBSCRIPTION_CONFIG.ownerAccess?.adminEmail || "").trim().toLowerCase();
-        const expectedKey = String(SUBSCRIPTION_CONFIG.ownerAccess?.accessKey || "").trim();
-
-        if (!ownerEmail || ownerEmail !== expectedEmail) {
-          setOwnerMessage("Email proprietario non valida.", "error");
-          return;
-        }
-        if (!ownerKey || ownerKey !== expectedKey) {
-          setOwnerMessage("Chiave proprietario non valida.", "error");
-          return;
-        }
-
-        activateOwnerMode(ownerEmail);
-        setOwnerMessage("Modalità Admin attivata. Tutte le funzioni Premium sono ora sbloccate su questo dispositivo.", "success");
-        window.setTimeout(() => {
-          openSettingsOverlay();
-        }, 300);
-      });
-    }
-
-    if (deactivateButton) {
-      deactivateButton.addEventListener("click", () => {
-        deactivateOwnerMode();
-        setOwnerMessage("Modalità Admin disattivata. L'app è tornata in Free.", "success");
-        window.setTimeout(() => {
-          openSettingsOverlay();
-        }, 300);
-      });
-    }
 
     if (registerForm) {
       registerForm.addEventListener("submit", async (event) => {
@@ -1727,7 +1393,6 @@
     openOverlay("Impostazioni", buildSettingsHtml(), {
       wide: true,
       subscribe: true,
-      settings: true,
       onOpen: () => setupSettingsOverlay()
     });
   }
@@ -1764,12 +1429,10 @@
         </div>
       `, { subscribe: true });
 
-      if (localMembershipState.plan !== "owner") {
-        setLocalMembershipState({
-          plan: "premium_pending",
-          updatedAt: new Date().toISOString()
-        });
-      }
+      setLocalMembershipState({
+        plan: "premium_pending",
+        updatedAt: new Date().toISOString()
+      });
 
       await pollPremiumStatus();
       return;
@@ -1882,5 +1545,6 @@
   });
 
   updatePremiumUi();
+  updateTopbarAccountUi();
   updateInstallUi();
 })();
