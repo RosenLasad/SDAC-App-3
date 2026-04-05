@@ -139,10 +139,11 @@ html,body{
   box-shadow: 0 0 0 3px rgba(179,18,23,.16);
 }
 .menu__toggleIcon{
-  font-size: 32px;
+  font-size: 15px;
   line-height: 1;
   font-weight: 900;
 }
+.menu__toggleIcon--mobile{ display:none; }
 
 .menu__body{
   display:flex;
